@@ -10,6 +10,7 @@ import type {
   Game,
   Metric,
   Milestone,
+  Quarter,
   Sprint,
   Task,
   TaskStatus,
@@ -38,12 +39,20 @@ const qk = {
 };
 
 // Narrower invalidation for task-level mutations (board / days / today).
-// Changing a task never affects features/milestones/metrics/quarters/etc.,
+// Changing a task never affects features/agents/metrics/quarters/etc.,
 // so we skip the full invalidate storm to keep sprint interactions fast.
+//
+// The `['tasks']` cache is invalidated with `refetchType: 'none'` on purpose:
+// every task mutation already applies its change optimistically via
+// `setQueryData` (and rolls back in `onError`), so forcing a background
+// refetch here can resolve OUT OF ORDER over that newer optimistic value and
+// snap a just-moved card back to its previous column. Marking the cache stale
+// keeps the optimistic value authoritative while signalling other screens
+// (Overview, GameRow) to refresh on their next mount.
 function useInvalidateTasks() {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: ['tasks'] });
+    qc.invalidateQueries({ queryKey: ['tasks'], refetchType: 'none' });
     qc.invalidateQueries({ queryKey: ['currentSprint'] });
     qc.invalidateQueries({ queryKey: ['today'] });
   };
@@ -253,10 +262,20 @@ export function useUpdateMetric() {
 
 export function useEnsureQuarters(gameId: string) {
   const qc = useQueryClient();
+  const quartersKey = qk.quarters(gameId);
   return useMutation({
     mutationFn: () => repo.ensureQuartersForYear(gameId, CURRENT_YEAR),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: qk.quarters(gameId) }),
+    // Write the ensured quarters straight into the cache instead of
+    // invalidating+refetching: an invalidation would trigger a background
+    // refetch whose result still reports the selected quarter as missing (it
+    // wasn't there yet), re-firing the ensure effect forever.
+    onSuccess: (created) => {
+      qc.setQueryData<Quarter[]>(quartersKey, (old = []) => {
+        const byId = new Map(old.map((q) => [q.id, q]));
+        for (const q of created) byId.set(q.id, q);
+        return [...byId.values()];
+      });
+    },
   });
 }
 
@@ -520,12 +539,18 @@ export function useUpdateTask(gameId: string) {
     mutationFn: (input: { taskId: string; patch: Partial<Task> }) =>
       repo.updateTask(input.taskId, input.patch),
     // Optimistic: apply the patch to the cached task immediately.
+    // The cache update is applied BEFORE the awaited cancel so it runs in the
+    // same synchronous tick as the drag overlay being dismissed. Awaiting the
+    // cancel first deferred setQueryData to a microtask, which let the dragged
+    // card flash back to its original column before settling into the new one.
     onMutate: async (input) => {
-      await qc.cancelQueries({ queryKey: ['tasks'] });
       const prev = qc.getQueryData<Task[]>(tasksKey);
       qc.setQueryData<Task[]>(tasksKey, (old = []) =>
         old.map((t) => (t.id === input.taskId ? { ...t, ...input.patch } : t)),
       );
+      // Cancel any in-flight reads afterwards so they can't overwrite the
+      // optimistic value with stale data.
+      await qc.cancelQueries({ queryKey: ['tasks'] });
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -569,8 +594,10 @@ export function useMoveTaskDay(gameId: string) {
     mutationFn: (input: { taskId: string; day: Task['day'] }) =>
       repo.moveTaskDay(input.taskId, input.day),
     // Optimistic: drop the card onto the target day immediately.
+    // Like useUpdateTask, apply the cache update synchronously (before any
+    // await) so the card lands on the target day in the same render as the
+    // drag overlay disappears, instead of flashing back to the old day first.
     onMutate: async (input) => {
-      await qc.cancelQueries({ queryKey: ['tasks'] });
       const prev = qc.getQueryData<Task[]>(tasksKey);
       qc.setQueryData<Task[]>(tasksKey, (old = []) =>
         old.map((t) =>
@@ -579,6 +606,9 @@ export function useMoveTaskDay(gameId: string) {
             : t,
         ),
       );
+      // Cancel any in-flight reads afterwards so they can't overwrite the
+      // optimistic value with stale data.
+      await qc.cancelQueries({ queryKey: ['tasks'] });
       return { prev };
     },
     onError: (_e, _v, ctx) => {

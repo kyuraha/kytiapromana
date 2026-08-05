@@ -329,11 +329,26 @@ export default function QuarterPage() {
   // do a redundant network read (its own listQuarters) in parallel with the
   // query on every fresh page load, which is why this tab felt slower than the
   // others. With the loaded quarters we already know whether the year exists.
+  // `isPending` prevents a second fire while a create is still in flight, which
+  // used to restart the cycle and keep the page stuck on "No milestones yet".
   useEffect(() => {
-    if (gameId && quartersLoaded && !selectedQuarter) {
+    if (
+      gameId &&
+      quartersLoaded &&
+      !selectedQuarter &&
+      !ensureQuarters.isPending
+    ) {
       ensureQuarters.mutate();
     }
-  }, [gameId, year, quarter, quarters, quartersLoaded, selectedQuarter, ensureQuarters]);
+  }, [
+    gameId,
+    year,
+    quarter,
+    quarters,
+    quartersLoaded,
+    selectedQuarter,
+    ensureQuarters,
+  ]);
 
   const metricNames = useMemo(() => {
     const map = new Map(metrics.map((m) => [m.id, m.name]));

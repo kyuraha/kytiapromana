@@ -219,12 +219,20 @@ export default function SprintPage() {
   };
 
   const handleDropColumn = (taskId: string, column: ColumnKey) => {
+    // `note` must be cleared with `null`, not `undefined`: the repo layers
+    // strip `undefined` before writing (Firestore can't store it), so a stale
+    // note would survive the update and make the task snap back to Blocked on
+    // the next refetch. `null` is Firestore's way to delete a field.
     const patchByColumn: Record<ColumnKey, Parameters<typeof updateTask.mutate>[0]['patch']> = {
-      todo: { status: 'todo', isBacklog: false, note: undefined },
-      doing: { status: 'doing', isBacklog: false, note: undefined },
-      done: { status: 'done', isBacklog: false, note: undefined },
+      todo: { status: 'todo', isBacklog: false, note: null },
+      doing: { status: 'doing', isBacklog: false, note: null },
+      done: { status: 'done', isBacklog: false, note: null },
       blocked: { status: 'todo', isBacklog: false, note: 'Blocked: needs attention.' },
-      backlog: { status: 'todo', isBacklog: true, day: undefined, note: undefined },
+      // `day: null` (not `undefined`): the repo layers strip `undefined` before
+      // writing, so an undefined day would never clear a previously-assigned
+      // day — the card would stay on its day in the Days view. `null` deletes
+      // the field in Firestore.
+      backlog: { status: 'todo', isBacklog: true, day: null, note: null },
     };
     updateTask.mutate({ taskId, patch: patchByColumn[column] });
   };

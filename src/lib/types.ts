@@ -108,7 +108,7 @@ export interface Task {
   gameId: string;
   title: string;
   status: TaskStatus;
-  day?: DayName;
+  day?: DayName | null;
   isBacklog: boolean;
-  note?: string;
+  note?: string | null;
 }

@@ -156,12 +156,27 @@ export function buildSeed(): SeedDatabase {
     },
   ];
 
-  const quarters1: Quarter[] = [
-    { id: 'q-arnava-q1', gameId: g1.id, userId: USER, year: seedYear, quarter: 'Q1' },
-  ];
-  const quarters2: Quarter[] = [
-    { id: 'q-sidex-q1', gameId: g2.id, userId: USER, year: seedYear, quarter: 'Q1' },
-  ];
+  // Seed all four quarters so the Quarter tab's default (current calendar
+  // quarter) always exists. Seeding only Q1 made the page fall into an endless
+  // ensure+refetch loop whenever the current quarter wasn't Q1.
+  const quarters1: Quarter[] = (['Q1', 'Q2', 'Q3', 'Q4'] as const).map(
+    (q) => ({
+      id: `q-arnava-${q.toLowerCase()}`,
+      gameId: g1.id,
+      userId: USER,
+      year: seedYear,
+      quarter: q,
+    }),
+  );
+  const quarters2: Quarter[] = (['Q1', 'Q2', 'Q3', 'Q4'] as const).map(
+    (q) => ({
+      id: `q-sidex-${q.toLowerCase()}`,
+      gameId: g2.id,
+      userId: USER,
+      year: seedYear,
+      quarter: q,
+    }),
+  );
 
   const features1: Feature[] = [
     {

@@ -239,13 +239,19 @@ export class MockRepo implements Repo {
     year: number,
   ): Promise<Quarter[]> {
     const existing = await this.listQuarters(gameId);
-    if (existing.some((q) => q.year === year)) {
-      return existing.filter((q) => q.year === year);
-    }
+    const yearOnes = existing.filter((q) => q.year === year);
+    // Ensure EVERY quarter of the year exists, creating only the missing ones.
+    // (The old check skipped creation whenever the year had any quarter at all,
+    // so a game seeded with only Q1 could never gain Q2..Q4 — the Quarter tab
+    // then looped ensure+refetch forever.)
+    const missing = (['Q1', 'Q2', 'Q3', 'Q4'] as QuarterName[]).filter(
+      (q) => !yearOnes.some((x) => x.quarter === q),
+    );
+    if (missing.length === 0) return yearOnes;
     const created: Quarter[] = [];
     const user = this.db.games.find((g) => g.id === gameId)?.userId ?? '';
     await this.mutate((db) => {
-      (['Q1', 'Q2', 'Q3', 'Q4'] as QuarterName[]).forEach((q) => {
+      missing.forEach((q) => {
         const quarter: Quarter = {
           id: uid('q'),
           gameId,
@@ -257,7 +263,7 @@ export class MockRepo implements Repo {
         created.push(quarter);
       });
     });
-    return created;
+    return [...yearOnes, ...created];
   }
 
   // ---------------- features ----------------

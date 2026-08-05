@@ -2,8 +2,8 @@ import { useState } from 'react';
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   PointerSensor,
-  closestCorners,
   useDroppable,
   useSensor,
   useSensors,
@@ -11,6 +11,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import type { Feature, Task } from '../../lib/types';
+import { columnCollision } from '../../lib/dnd';
 import TaskCard from './TaskCard';
 import DraggableTask from './DraggableTask';
 
@@ -38,12 +39,14 @@ function Column({
   featureById,
   onToggle,
   onDelete,
+  activeTaskId,
 }: {
   column: (typeof COLUMNS)[number];
   tasks: Task[];
   featureById: Map<string, Feature>;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
+  activeTaskId: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col-${column.key}` });
   return (
@@ -69,6 +72,7 @@ function Column({
             feature={featureById.get(t.featureId)}
             onToggle={onToggle}
             onDelete={onDelete}
+            hidden={activeTaskId === t.id}
           />
         ))}
         {tasks.length === 0 && (
@@ -110,19 +114,30 @@ export default function SprintKanban({
   const handleDragCancel = () => setActiveTask(null);
 
   const handleDragEnd = (e: DragEndEvent) => {
-    setActiveTask(null);
     const { active, over } = e;
-    if (!over) return;
     const taskId = String(active.id).replace('task-', '');
-    const overId = String(over.id);
-    if (!overId.startsWith('col-')) return;
+    const overId = over ? String(over.id) : '';
+
+    // No valid column target → cancel (reveals the card in its original spot).
+    if (!over || !overId.startsWith('col-')) {
+      setActiveTask(null);
+      return;
+    }
+
     onDropColumn(taskId, overId.replace('col-', '') as ColumnKey);
+
+    // Keep the dragged card hidden in the DragOverlay and the source card
+    // hidden for one animation frame, so the optimistic update has re-rendered
+    // the card into the target column before the source is revealed again.
+    // This way the source can never flash back to the column it came from.
+    requestAnimationFrame(() => setActiveTask(null));
   };
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={columnCollision}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={handleDragStart}
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
@@ -136,11 +151,12 @@ export default function SprintKanban({
             featureById={featureById}
             onToggle={onToggle}
             onDelete={onDelete}
+            activeTaskId={activeTask?.id ?? null}
           />
         ))}
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeTask ? (
           <div className="cursor-grabbing rotate-2 rounded-lg shadow-2xl ring-2 ring-brand/40">
             <TaskCard

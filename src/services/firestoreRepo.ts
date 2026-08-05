@@ -293,18 +293,25 @@ export class FirestoreRepo implements Repo {
   async ensureQuartersForYear(gameId: string, year: number): Promise<Quarter[]> {
     const existing = await this.listQuarters(gameId);
     const yearOnes = existing.filter((q) => q.year === year);
-    if (yearOnes.length) return yearOnes;
+    // Ensure EVERY quarter of the year exists, creating only the missing ones.
+    // (The old check skipped creation whenever the year had any quarter at all,
+    // so a game seeded with only Q1 could never gain Q2..Q4 — the Quarter tab
+    // then looped ensure+refetch forever.)
+    const missing = (['Q1', 'Q2', 'Q3', 'Q4'] as QuarterName[]).filter(
+      (q) => !yearOnes.some((x) => x.quarter === q),
+    );
+    if (missing.length === 0) return yearOnes;
     const db = getDb()!;
     const created: Quarter[] = [];
     const batch = writeBatch(db);
-    (['Q1', 'Q2', 'Q3', 'Q4'] as QuarterName[]).forEach((q) => {
+    missing.forEach((q) => {
       const id = uid('q');
       const quarter: Quarter = { id, gameId, userId: getCurrentUid(), year, quarter: q };
       batch.set(doc(db, C.quarters, id), clean(quarter));
       created.push(quarter);
     });
     await batch.commit();
-    return created;
+    return [...yearOnes, ...created];
   }
 
   // ---------------- features ----------------

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   PointerSensor,
-  closestCorners,
   useDroppable,
   useSensor,
   useSensors,
@@ -13,6 +13,7 @@ import {
 import type { DayName, Feature, Task } from '../../lib/types';
 import { DAYS } from '../../lib/constants';
 import { isToday, displayDate } from '../../lib/format';
+import { columnCollision } from '../../lib/dnd';
 import DraggableTask from './DraggableTask';
 import TaskCard from './TaskCard';
 
@@ -23,6 +24,7 @@ function DayColumn({
   baseDate,
   onToggle,
   onDelete,
+  activeTaskId,
 }: {
   day: DayName;
   tasks: Task[];
@@ -30,6 +32,7 @@ function DayColumn({
   baseDate: string;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
+  activeTaskId: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day-${day}` });
   const today = isToday(day);
@@ -61,6 +64,7 @@ function DayColumn({
             compact
             onToggle={onToggle}
             onDelete={onDelete}
+            hidden={activeTaskId === t.id}
           />
         ))}
         {tasks.length === 0 && (
@@ -120,20 +124,34 @@ export default function DayTable({
   const handleDragCancel = () => setActiveTask(null);
 
   const handleDragEnd = (e: DragEndEvent) => {
-    setActiveTask(null);
     const { active, over } = e;
-    if (!over) return;
     const taskId = String(active.id).replace('task-', '');
-    const overId = String(over.id);
-    if (!overId.startsWith('day-')) return;
-    const day = overId === 'day-__unassigned__' ? undefined : (overId.replace('day-', '') as DayName);
+    const overId = over ? String(over.id) : '';
+
+    // No valid day target → cancel (reveals the card in its original spot).
+    if (!over || !overId.startsWith('day-')) {
+      setActiveTask(null);
+      return;
+    }
+
+    const day =
+      overId === 'day-__unassigned__'
+        ? undefined
+        : (overId.replace('day-', '') as DayName);
     onDropDay(taskId, day);
+
+    // Keep the dragged card hidden in the DragOverlay and the source card
+    // hidden for one animation frame, so the optimistic update has re-rendered
+    // the card into the target day before the source is revealed again. This
+    // way the source can never flash back to the day it came from.
+    requestAnimationFrame(() => setActiveTask(null));
   };
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={columnCollision}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={handleDragStart}
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
@@ -156,6 +174,7 @@ export default function DayTable({
                 baseDate={baseDate}
                 onToggle={onToggle}
                 onDelete={onDelete}
+                activeTaskId={activeTask?.id ?? null}
               />
             </div>
           ))}
@@ -183,6 +202,7 @@ export default function DayTable({
                   feature={featureById.get(t.featureId)}
                   onToggle={onToggle}
                   onDelete={onDelete}
+                  hidden={activeTask?.id === t.id}
                 />
               ))}
             </div>
@@ -194,7 +214,7 @@ export default function DayTable({
         </div>
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeTask ? (
           <div className="cursor-grabbing rotate-2 rounded-lg shadow-2xl ring-2 ring-brand/40">
             <TaskCard
