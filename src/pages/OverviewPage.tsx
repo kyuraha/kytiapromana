@@ -122,11 +122,6 @@ export default function OverviewPage() {
     [milestones],
   );
 
-  const activeMilestones = useMemo(
-    () => milestones.filter((m) => m.status === 'active'),
-    [milestones],
-  );
-
   const sprintTasks = useMemo(
     () => (currentSprint ? tasks.filter((t) => t.sprintId === currentSprint.id) : []),
     [currentSprint, tasks],
@@ -382,23 +377,6 @@ export default function OverviewPage() {
             )}
           </div>
         </div>
-        {activeMilestones.length > 0 && (
-          <div className="border-t border-slate-100 px-5 py-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Active milestones
-            </div>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {activeMilestones.map((m) => (
-                <span
-                  key={m.id}
-                  className="rounded-md bg-amber-50 px-2 py-0.5 text-xs text-amber-700"
-                >
-                  {m.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
       </section>
     </div>
   );

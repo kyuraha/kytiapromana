@@ -22,7 +22,11 @@ const queryClient = new QueryClient({
   }),
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
+      staleTime: 60_000,
+      // Keep inactive query caches for the whole session instead of dropping
+      // them after the 5-minute default. Without this, leaving a tab and coming
+      // back later reloads every query from scratch (spinner / empty state).
+      gcTime: Infinity,
       refetchOnWindowFocus: false,
     },
   },

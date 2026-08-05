@@ -21,7 +21,7 @@ export const CURRENT_YEAR = new Date().getFullYear();
 // Reads can be served from cache for this long before a background refetch.
 // This makes cross-screen navigation and the games list feel instant, while
 // mutations still force refetches via explicit invalidation of their keys.
-const STALE = 30_000;
+const STALE = 60_000;
 
 const qk = {
   games: ['games'] as const,
