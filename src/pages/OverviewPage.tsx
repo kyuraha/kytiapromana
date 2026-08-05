@@ -18,7 +18,7 @@ import MetricCard from '../components/overview/MetricCard';
 import Modal from '../components/common/Modal';
 import Spinner from '../components/common/Spinner';
 import EmptyState from '../components/common/EmptyState';
-import { formatShort } from '../lib/format';
+import { formatShort, todayDayName } from '../lib/format';
 import { STATUS_COLORS } from '../lib/constants';
 
 function AddMetricModal({
@@ -134,6 +134,19 @@ export default function OverviewPage() {
   const doneCount = sprintTasks.filter((t) => t.status === 'done').length;
   const doingCount = sprintTasks.filter((t) => t.status === 'doing').length;
   const blockedCount = sprintTasks.filter((t) => t.status === 'todo' && t.note).length;
+
+  // Sprint completion % — share of this sprint's tasks marked done.
+  const sprintTotal = sprintTasks.length;
+  const sprintPct = sprintTotal ? Math.round((doneCount / sprintTotal) * 100) : 0;
+
+  // Today completion % — share of this game's tasks scheduled for today that
+  // are done. Matches the cross-game "Today" panel on the Sprint tab.
+  const todayName = todayDayName();
+  const todayTasks = tasks.filter((t) => t.day === todayName);
+  const todayDone = todayTasks.filter((t) => t.status === 'done').length;
+  const todayPct = todayTasks.length
+    ? Math.round((todayDone / todayTasks.length) * 100)
+    : 0;
 
   const openAddMetric = () => {
     if (vision) {
@@ -317,6 +330,57 @@ export default function OverviewPage() {
               </div>
             </div>
           ))}
+        </div>
+        <div className="grid gap-x-6 gap-y-4 border-t border-slate-100 px-5 py-4 sm:grid-cols-2">
+          {/* Sprint progress */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wide">
+                Sprint progress
+              </span>
+              {currentSprint ? (
+                <span className="font-semibold text-ink">
+                  {doneCount}/{sprintTotal} done · {sprintPct}%
+                </span>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-brand"
+                style={{ width: `${Math.min(sprintPct, 100)}%` }}
+              />
+            </div>
+            {!currentSprint && (
+              <div className="mt-1 text-xs text-slate-400">
+                No sprint yet — start one in the Sprint tab.
+              </div>
+            )}
+          </div>
+
+          {/* Today progress */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wide">
+                Today · {todayName}
+              </span>
+              <span className="font-semibold text-ink">
+                {todayDone}/{todayTasks.length} done · {todayPct}%
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-emerald-500"
+                style={{ width: `${Math.min(todayPct, 100)}%` }}
+              />
+            </div>
+            {todayTasks.length === 0 && (
+              <div className="mt-1 text-xs text-slate-400">
+                Nothing scheduled for today.
+              </div>
+            )}
+          </div>
         </div>
         {activeMilestones.length > 0 && (
           <div className="border-t border-slate-100 px-5 py-3">

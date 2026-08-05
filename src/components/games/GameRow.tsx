@@ -6,6 +6,7 @@ import { useConfirm } from '../../lib/dialogs';
 import {
   useCurrentSprint,
   useDeleteGame,
+  useFeatures,
   useMilestones,
   useTasks,
   useVision,
@@ -21,18 +22,37 @@ export default function GameRow({ game }: { game: Game }) {
   const { data: vision } = useVision(game.id, CURRENT_YEAR);
   const { data: metrics = [] } = useMetrics(game.id);
   const { data: milestones = [] } = useMilestones(game.id);
+  const { data: features = [] } = useFeatures(game.id);
   const { data: currentSprint } = useCurrentSprint(game.id);
   const { data: tasks = [] } = useTasks(game.id);
 
+  // The "Goal" for the games-list card. Ideally it's the metric flagged as the
+  // vision's north star, but nothing in the app sets `northStarId`, so fall back
+  // to the first metric — otherwise this card is permanently stuck on
+  // "No metric set yet" even after metrics are added.
   const goal = useMemo(() => {
-    if (!vision?.northStarId) return null;
-    return metrics.find((m) => m.id === vision.northStarId) ?? null;
+    const north = vision?.northStarId
+      ? metrics.find((m) => m.id === vision.northStarId)
+      : null;
+    return north ?? (metrics.length ? metrics[0] : null);
   }, [vision, metrics]);
 
   const activeMilestones = useMemo(
-    () => milestones.filter((m) => m.status === 'active').length,
+    () => milestones.filter((m) => m.status === 'active'),
     [milestones],
   );
+
+  // Lead active milestone + its feature completion (mirrors the Quarter cards on
+  // the Overview tab: features are "done" when the milestone itself is done).
+  const leadMilestone = activeMilestones[0] ?? null;
+  const leadFeatureCount = useMemo(() => {
+    if (!leadMilestone) return 0;
+    return features.filter((f) => f.milestoneId === leadMilestone.id).length;
+  }, [leadMilestone, features]);
+  const leadDone = leadMilestone?.status === 'done' ? leadFeatureCount : 0;
+  const leadPct = leadFeatureCount
+    ? Math.round((leadDone / leadFeatureCount) * 100)
+    : 0;
 
   const sprintTasks = useMemo(() => {
     if (!currentSprint) return [];
@@ -99,28 +119,63 @@ export default function GameRow({ game }: { game: Game }) {
 
             <div className="rounded-xl bg-slate-50 p-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Now
+                Active milestone
               </div>
-              <div className="mt-1 text-sm text-ink">
-                Q1 · {currentSprint ? `Sprint #${currentSprint.number}` : '—'}
-              </div>
-              <div className="text-xs text-slate-500">
-                {activeMilestones > 0
-                  ? `${activeMilestones} active milestone${activeMilestones > 1 ? 's' : ''}`
-                  : 'no active milestone'}
-              </div>
+              {activeMilestones.length > 0 ? (
+                <div className="mt-1">
+                  <div className="truncate text-sm font-medium text-ink">
+                    {activeMilestones[0].name}
+                  </div>
+                  <div className="mt-1">
+                    <div className="mb-1 flex justify-between text-xs text-slate-400">
+                      <span>
+                        {leadDone}/{leadFeatureCount} features done
+                      </span>
+                      <span>{leadPct}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-brand"
+                        style={{ width: `${Math.min(leadPct, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  {activeMilestones.length > 1 && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      +{activeMilestones.length - 1} more
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-1 text-xs text-slate-400">
+                  No active milestone
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl bg-slate-50 p-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                This week
+                This sprint
               </div>
               <div className="mt-1 truncate text-sm text-ink">
                 {currentSprint?.goal || 'No goal set'}
               </div>
               <div className="text-xs text-slate-500">
                 {doneCount} done{currentSprint ? ` · ${totalCount} total` : ''}
+                {currentSprint && totalCount > 0
+                  ? ` · ${Math.round((doneCount / totalCount) * 100)}%`
+                  : ''}
               </div>
+              {currentSprint && totalCount > 0 && (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-emerald-500"
+                    style={{
+                      width: `${Math.min((doneCount / totalCount) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
