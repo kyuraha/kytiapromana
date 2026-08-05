@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Star } from 'lucide-react';
-import { useTodayTasks } from '../../hooks/useToday';
-import { useToggleDone } from '../../hooks/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { useTodayTasks, type TodayItem } from '../../hooks/useToday';
+import { useGames, useToggleDone } from '../../hooks/queries';
 import TrackBadge from '../common/TrackBadge';
 import { todayDayName } from '../../lib/format';
 
@@ -11,10 +12,33 @@ import { todayDayName } from '../../lib/format';
  * up to 3 must-do items.
  */
 export default function TodayPanel() {
+  const qc = useQueryClient();
+  const { data: games = [] } = useGames();
   const { data: items = [] } = useTodayTasks();
   const today = todayDayName();
+  const todayKey = ['today', today, games.map((g) => g.id).join(',')] as const;
   const [focus, setFocus] = useState<Set<string>>(new Set());
   const toggleDone = useToggleDoneForToday();
+
+  // Optimistic: flip the item in the cross-game Today cache immediately so the
+  // checkbox responds without waiting for a refetch. `toggleDone` reconciles it
+  // (invalidate ['today']) once the write settles.
+  const handleToggle = (id: string) => {
+    qc.setQueryData<TodayItem[]>(todayKey, (old = []) =>
+      old.map((it) =>
+        it.task.id === id
+          ? {
+              ...it,
+              task: {
+                ...it.task,
+                status: it.task.status === 'done' ? 'todo' : 'done',
+              },
+            }
+          : it,
+      ),
+    );
+    toggleDone.mutate(id);
+  };
 
   const toggleFocus = (id: string) => {
     setFocus((prev) => {
@@ -64,7 +88,7 @@ export default function TodayPanel() {
                 }`}
               >
                 <button
-                  onClick={() => toggleDone.mutate(task.id)}
+                  onClick={() => handleToggle(task.id)}
                   className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
                     task.status === 'done'
                       ? 'border-emerald-500 bg-emerald-500 text-white'

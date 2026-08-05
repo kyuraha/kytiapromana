@@ -476,7 +476,7 @@ export function useCloseSprint(gameId: string) {
 export function useAddTask(gameId: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateTasks();
-  const tasksKey = qk.tasks(getCurrentUid());
+  const tasksKey = qk.tasks(gameId);
   return useMutation({
     mutationFn: (input: {
       sprintId: string;
@@ -515,7 +515,7 @@ export function useAddTask(gameId: string) {
 export function useUpdateTask(gameId: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateTasks();
-  const tasksKey = qk.tasks(getCurrentUid());
+  const tasksKey = qk.tasks(gameId);
   return useMutation({
     mutationFn: (input: { taskId: string; patch: Partial<Task> }) =>
       repo.updateTask(input.taskId, input.patch),
@@ -538,7 +538,7 @@ export function useUpdateTask(gameId: string) {
 export function useToggleDone(gameId: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateTasks();
-  const tasksKey = qk.tasks(getCurrentUid());
+  const tasksKey = qk.tasks(gameId);
   return useMutation({
     mutationFn: (taskId: string) => repo.toggleDone(taskId),
     // Optimistic: flip the status in the cache straight away.
@@ -564,7 +564,7 @@ export function useToggleDone(gameId: string) {
 export function useMoveTaskDay(gameId: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateTasks();
-  const tasksKey = qk.tasks(getCurrentUid());
+  const tasksKey = qk.tasks(gameId);
   return useMutation({
     mutationFn: (input: { taskId: string; day: Task['day'] }) =>
       repo.moveTaskDay(input.taskId, input.day),
@@ -591,7 +591,7 @@ export function useMoveTaskDay(gameId: string) {
 export function useDeleteTask(gameId: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateTasks();
-  const tasksKey = qk.tasks(getCurrentUid());
+  const tasksKey = qk.tasks(gameId);
   return useMutation({
     mutationFn: (taskId: string) => repo.deleteTask(taskId),
     // Optimistic: remove the card immediately.
