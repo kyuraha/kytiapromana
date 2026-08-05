@@ -18,6 +18,11 @@ import type {
 
 export const CURRENT_YEAR = new Date().getFullYear();
 
+// Reads can be served from cache for this long before a background refetch.
+// This makes cross-screen navigation and the games list feel instant, while
+// mutations still force refetches via explicit invalidation of their keys.
+const STALE = 30_000;
+
 const qk = {
   games: ['games'] as const,
   game: (id: string) => ['games', id] as const,
@@ -59,7 +64,7 @@ export function useGames() {
   return useQuery({
     queryKey: qk.games,
     queryFn: () => repo.listGames(getCurrentUid()),
-
+    staleTime: STALE,
   });
 }
 
@@ -68,6 +73,7 @@ export function useGame(gameId: string) {
     queryKey: qk.game(gameId),
     queryFn: () => repo.getGame(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -76,6 +82,7 @@ export function useVision(gameId: string, year: number) {
     queryKey: qk.vision(gameId, year),
     queryFn: () => repo.getVision(gameId, year),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -84,6 +91,7 @@ export function useMetrics(gameId: string) {
     queryKey: qk.metrics(gameId),
     queryFn: () => repo.listMetricsByGame(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -92,6 +100,7 @@ export function useQuarters(gameId: string) {
     queryKey: qk.quarters(gameId),
     queryFn: () => repo.listQuarters(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -100,6 +109,7 @@ export function useFeatures(gameId: string) {
     queryKey: qk.features(gameId),
     queryFn: () => repo.listFeatures(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -108,6 +118,7 @@ export function useMilestones(gameId: string) {
     queryKey: qk.milestones(gameId),
     queryFn: () => repo.listMilestones(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -116,6 +127,7 @@ export function useSprints(gameId: string) {
     queryKey: qk.sprints(gameId),
     queryFn: () => repo.listSprints(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -124,6 +136,7 @@ export function useCurrentSprint(gameId: string) {
     queryKey: ['currentSprint', gameId],
     queryFn: () => repo.getCurrentSprint(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -132,6 +145,7 @@ export function useTasks(gameId: string) {
     queryKey: qk.tasks(gameId),
     queryFn: () => repo.listTasks(gameId),
     enabled: !!gameId,
+    staleTime: STALE,
   });
 }
 
@@ -140,6 +154,7 @@ export function useTasksBySprint(sprintId: string) {
     queryKey: qk.tasksSprint(sprintId),
     queryFn: () => repo.listTasksBySprint(sprintId),
     enabled: !!sprintId,
+    staleTime: STALE,
   });
 }
 

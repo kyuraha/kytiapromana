@@ -191,11 +191,17 @@ export class FirestoreRepo implements Repo {
   // ---------------- vision & metrics ----------------
   async getVision(gameId: string, year: number): Promise<Vision | null> {
     const db = getDb()!;
-    // Filter by userId so the security rule (`resource.data.userId == uid`)
-    // is satisfied by the query itself — otherwise Firestore denies the read.
-    const q = query(collection(db, C.visions), where('userId', '==', getCurrentUid()));
+    // Scoped to THIS game via the `(gameId, userId)` composite index — the old
+    // code pulled every vision the user owns and filtered client-side, so the
+    // cost grew with the whole account instead of the game. `userId` stays in
+    // the query so the security rule (`resource.data.userId == uid`) passes.
+    const q = query(
+      collection(db, C.visions),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
     const list = await allDocs<Vision>(C.visions, q);
-    return list.find((v) => v.gameId === gameId && v.year === year) ?? null;
+    return list.find((v) => v.year === year) ?? null;
   }
 
   async ensureVision(gameId: string, year: number): Promise<Vision> {
@@ -212,9 +218,12 @@ export class FirestoreRepo implements Repo {
 
   async listMetricsByGame(gameId: string): Promise<Metric[]> {
     const db = getDb()!;
-    const q = query(collection(db, C.metrics), where('userId', '==', getCurrentUid()));
-    const list = await allDocs<Metric>(C.metrics, q);
-    return list.filter((m) => m.gameId === gameId);
+    const q = query(
+      collection(db, C.metrics),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
+    return allDocs<Metric>(C.metrics, q);
   }
 
   async addMetric(
@@ -256,9 +265,12 @@ export class FirestoreRepo implements Repo {
   // ---------------- quarters ----------------
   async listQuarters(gameId: string): Promise<Quarter[]> {
     const db = getDb()!;
-    const q = query(collection(db, C.quarters), where('userId', '==', getCurrentUid()));
-    const list = await allDocs<Quarter>(C.quarters, q);
-    return list.filter((x) => x.gameId === gameId);
+    const q = query(
+      collection(db, C.quarters),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
+    return allDocs<Quarter>(C.quarters, q);
   }
 
   async getQuarter(
@@ -267,11 +279,14 @@ export class FirestoreRepo implements Repo {
     quarter: QuarterName,
   ): Promise<Quarter | null> {
     const db = getDb()!;
-    const q = query(collection(db, C.quarters), where('userId', '==', getCurrentUid()));
+    const q = query(
+      collection(db, C.quarters),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
     const list = await allDocs<Quarter>(C.quarters, q);
     return (
-      list.find((x) => x.gameId === gameId && x.year === year && x.quarter === quarter) ??
-      null
+      list.find((x) => x.year === year && x.quarter === quarter) ?? null
     );
   }
 
@@ -295,9 +310,12 @@ export class FirestoreRepo implements Repo {
   // ---------------- features ----------------
   async listFeatures(gameId: string): Promise<Feature[]> {
     const db = getDb()!;
-    const q = query(collection(db, C.features), where('userId', '==', getCurrentUid()));
-    const list = await allDocs<Feature>(C.features, q);
-    return list.filter((f) => f.gameId === gameId);
+    const q = query(
+      collection(db, C.features),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
+    return allDocs<Feature>(C.features, q);
   }
 
   async addFeature(
@@ -337,9 +355,12 @@ export class FirestoreRepo implements Repo {
   // ---------------- milestones ----------------
   async listMilestones(gameId: string): Promise<Milestone[]> {
     const db = getDb()!;
-    const q = query(collection(db, C.milestones), where('userId', '==', getCurrentUid()));
-    const list = await allDocs<Milestone>(C.milestones, q);
-    return list.filter((m) => m.gameId === gameId);
+    const q = query(
+      collection(db, C.milestones),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
+    return allDocs<Milestone>(C.milestones, q);
   }
 
   async addMilestone(
@@ -389,11 +410,13 @@ export class FirestoreRepo implements Repo {
   // ---------------- sprints ----------------
   async listSprints(gameId: string): Promise<Sprint[]> {
     const db = getDb()!;
-    const q = query(collection(db, C.sprints), where('userId', '==', getCurrentUid()));
+    const q = query(
+      collection(db, C.sprints),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
     const list = await allDocs<Sprint>(C.sprints, q);
-    return list
-      .filter((s) => s.gameId === gameId)
-      .sort((a, b) => b.number - a.number);
+    return list.sort((a, b) => b.number - a.number);
   }
 
   async getCurrentSprint(gameId: string, _date?: string): Promise<Sprint | null> {
@@ -482,9 +505,12 @@ export class FirestoreRepo implements Repo {
   // ---------------- tasks ----------------
   async listTasks(gameId: string): Promise<Task[]> {
     const db = getDb()!;
-    const q = query(collection(db, C.tasks), where('userId', '==', getCurrentUid()));
-    const list = await allDocs<Task>(C.tasks, q);
-    return list.filter((t) => t.gameId === gameId);
+    const q = query(
+      collection(db, C.tasks),
+      where('userId', '==', getCurrentUid()),
+      where('gameId', '==', gameId),
+    );
+    return allDocs<Task>(C.tasks, q);
   }
 
   async listTasksBySprint(sprintId: string): Promise<Task[]> {

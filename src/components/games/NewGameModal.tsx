@@ -22,24 +22,8 @@ export default function NewGameModal({
 
   const submit = () => {
     if (!name.trim()) return;
-    saveGame.mutate(
-      {
-        data: {
-          name: name.trim(),
-          description: description.trim(),
-          icon,
-          color,
-          defaultTrackType: track,
-        },
-      },
-      {
-        onSuccess: () => {
-          setName('');
-          setDescription('');
-          onClose();
-        },
-      },
-    );
+    onClose(); // Close immediately — the optimistic update already shows the card.
+    saveGame.mutate({ data: { name: name.trim(), description: description.trim(), icon, color, defaultTrackType: track } });
   };
 
   return (
