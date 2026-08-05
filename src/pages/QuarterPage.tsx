@@ -296,7 +296,7 @@ export default function QuarterPage() {
   const { gameId = '' } = useParams();
   const confirm = useConfirm();
   const { data: game } = useGame(gameId);
-  const { data: quarters = [] } = useQuarters(gameId);
+  const { data: quarters = [], isSuccess: quartersLoaded } = useQuarters(gameId);
   const { data: features = [] } = useFeatures(gameId);
   const { data: milestones = [] } = useMilestones(gameId);
   const { data: metrics = [] } = useMetrics(gameId);
@@ -324,12 +324,16 @@ export default function QuarterPage() {
     (q) => q.year === year && q.quarter === quarter,
   );
 
-  // Ensure Q1..Q4 exist for the chosen year/quarter combination.
+  // Ensure Q1..Q4 exist for the chosen year/quarter combination, but only AFTER
+  // the quarters query has actually loaded. Firing earlier made `ensureQuarters`
+  // do a redundant network read (its own listQuarters) in parallel with the
+  // query on every fresh page load, which is why this tab felt slower than the
+  // others. With the loaded quarters we already know whether the year exists.
   useEffect(() => {
-    if (gameId && quarters.length >= 0 && !selectedQuarter) {
+    if (gameId && quartersLoaded && !selectedQuarter) {
       ensureQuarters.mutate();
     }
-  }, [gameId, year, quarter, quarters, selectedQuarter, ensureQuarters]);
+  }, [gameId, year, quarter, quarters, quartersLoaded, selectedQuarter, ensureQuarters]);
 
   const metricNames = useMemo(() => {
     const map = new Map(metrics.map((m) => [m.id, m.name]));
