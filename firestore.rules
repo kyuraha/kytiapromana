@@ -8,11 +8,19 @@ service cloud.firestore {
     match /{collection}/{id} {
       allow read: if signedIn() && resource.data.userId == request.auth.uid;
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      // For `update` operations, `request.resource.data` only contains the fields
+      // being updated (NOT the full merged document). The app performs many
+      // partial updates (e.g. closeSprint's writeBatch, toggleDone, retro save)
+      // that don't include `userId`, so we must not require
+      // `request.resource.data.userId`. Ownership is enforced against the
+      // existing document (`resource.data.userId`), and we still forbid re-pointing
+      // `userId` at another account when it IS present in the update payload.
       // Note: request.resource is null on delete, so the userId check for deletes
       // must NOT reference request.resource (it would fail every delete).
       allow update: if signedIn()
           && resource.data.userId == request.auth.uid
-          && request.resource.data.userId == request.auth.uid;
+          && (!('userId' in request.resource.data)
+              || request.resource.data.userId == request.auth.uid);
       allow delete: if signedIn()
           && resource.data.userId == request.auth.uid;
     }

@@ -22,6 +22,7 @@ import Modal from '../components/common/Modal';
 import Spinner from '../components/common/Spinner';
 import EmptyState from '../components/common/EmptyState';
 import { DAYS, STATUS_COLORS } from '../lib/constants';
+import { useConfirm } from '../lib/dialogs';
 import { formatShort, todayDayName } from '../lib/format';
 import type { DayName, Feature, TaskStatus } from '../lib/types';
 
@@ -175,6 +176,7 @@ export default function SprintPage() {
   const addTask = useAddTask(gameId);
   const createSprint = useCreateSprint(gameId);
   const closeSprint = useCloseSprint(gameId);
+  const confirm = useConfirm();
 
   const [addOpen, setAddOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState(false);
@@ -231,15 +233,31 @@ export default function SprintPage() {
     moveTaskDay.mutate({ taskId, day });
   };
 
-  const handleClose = () => {
-    if (!currentSprint) return;
-    if (
-      confirm(
-        'Close sprint? Done tasks are deleted; in-progress moves to the next sprint; todo returns to backlog.',
-      )
-    ) {
-      closeSprint.mutate(currentSprint.id);
+  const handleStartSprint = async () => {
+    if (features.length === 0) {
+      await confirm({
+        title: 'Start with a feature first',
+        message:
+          'You need at least one feature in a quarter before starting the sprint. Add a feature in the Quarter tab first, then come back here to start the sprint.',
+        confirmLabel: 'Got it',
+        confirmOnly: true,
+      });
+      return;
     }
+    createSprint.mutate();
+  };
+
+  const handleClose = async () => {
+    if (!currentSprint) return;
+    const ok = await confirm({
+      title: 'Close sprint',
+      message:
+        'Close this sprint? Done tasks are deleted, in-progress tasks move to the next sprint, and todo tasks return to the backlog.',
+      confirmLabel: 'Close sprint',
+      cancelLabel: 'Cancel',
+      danger: true,
+    });
+    if (ok) closeSprint.mutate(currentSprint.id);
   };
 
   if (!game) return <Spinner />;
@@ -253,7 +271,7 @@ export default function SprintPage() {
           hint="Start the weekly rhythm — create a sprint to track this week's delivery."
           action={
             <button
-              onClick={() => createSprint.mutate()}
+              onClick={handleStartSprint}
               className="flex items-center gap-1 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
             >
               <RotateCcw size={14} /> Start first sprint

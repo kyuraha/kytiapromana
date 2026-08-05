@@ -32,22 +32,25 @@ const qk = {
   tasksSprint: (sprintId: string) => ['tasks', 'sprint', sprintId] as const,
 };
 
-function useInvalidateGame(gameId: string) {
+// Narrower invalidation for task-level mutations (board / days / today).
+// Changing a task never affects features/milestones/metrics/quarters/etc.,
+// so we skip the full invalidate storm to keep sprint interactions fast.
+function useInvalidateTasks() {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: ['games'] });
-    [
-      qk.metrics(gameId),
-      qk.quarters(gameId),
-      qk.features(gameId),
-      qk.milestones(gameId),
-      qk.sprints(gameId),
-      qk.vision(gameId, CURRENT_YEAR),
-      qk.tasks(getCurrentUid()),
-    ].forEach((key) => qc.invalidateQueries({ queryKey: key }));
     qc.invalidateQueries({ queryKey: ['tasks'] });
-    qc.invalidateQueries({ queryKey: ['today'] });
     qc.invalidateQueries({ queryKey: ['currentSprint'] });
+    qc.invalidateQueries({ queryKey: ['today'] });
+  };
+}
+
+// Generic invalidator for a set of query-key prefixes (e.g. ['features']).
+// Partial invalidation refreshes only the caches that a mutation actually
+// touches instead of the whole game, keeping interactions fast.
+function useInvalidateKeys(prefixes: string[]) {
+  const qc = useQueryClient();
+  return () => {
+    for (const p of prefixes) qc.invalidateQueries({ queryKey: [p] });
   };
 }
 
@@ -143,7 +146,8 @@ export function useTasksBySprint(sprintId: string) {
 // ---------------- game mutations ----------------
 export function useSaveGame() {
   const qc = useQueryClient();
-  return useMutation<Game | undefined, Error, { id?: string; data: Omit<Game, 'id' | 'createdAt' | 'userId'> }>({
+  const gamesKey = qk.games;
+  return useMutation<Game | undefined, Error, { id?: string; data: Omit<Game, 'id' | 'createdAt' | 'userId'> }, { prev?: Game[] }>({
     mutationFn: async (input) => {
       if (input.id) {
         await repo.updateGame(input.id, input.data);
@@ -151,15 +155,50 @@ export function useSaveGame() {
       }
       return repo.createGame({ ...input.data, userId: getCurrentUid() });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['games'] }),
+    // Optimistic: show the new/edited game immediately, then resync on settle.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['games'] });
+      const prev = qc.getQueryData<Game[]>(gamesKey);
+      if (input.id) {
+        qc.setQueryData<Game[]>(gamesKey, (old = []) =>
+          old.map((g) => (g.id === input.id ? { ...g, ...input.data } : g)),
+        );
+      } else {
+        const temp: Game = {
+          id: `temp-${Date.now()}`,
+          ...input.data,
+          userId: getCurrentUid(),
+          createdAt: new Date().toISOString().slice(0, 10),
+        };
+        qc.setQueryData<Game[]>(gamesKey, (old = []) => [temp, ...old]);
+      }
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(gamesKey, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['games'] }),
   });
 }
 
 export function useDeleteGame() {
   const qc = useQueryClient();
+  const gamesKey = qk.games;
   return useMutation({
     mutationFn: (gameId: string) => repo.deleteGame(gameId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['games'] }),
+    // Optimistic: remove the row immediately, restore on error.
+    onMutate: async (gameId) => {
+      await qc.cancelQueries({ queryKey: ['games'] });
+      const prev = qc.getQueryData<Game[]>(gamesKey);
+      qc.setQueryData<Game[]>(gamesKey, (old = []) =>
+        old.filter((g) => g.id !== gameId),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(gamesKey, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['games'] }),
   });
 }
 
@@ -207,75 +246,189 @@ export function useEnsureQuarters(gameId: string) {
 }
 
 export function useAddFeature(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateKeys(['features', 'today']);
+  const featuresKey = qk.features(gameId);
   return useMutation({
     mutationFn: (input: {
-      quarterId: string;
+      milestoneId: string;
       data: {
         name: string;
         category: Feature['category'];
         trackType: TrackType;
         storyPoints: number;
       };
-    }) => repo.addFeature(input.quarterId, gameId, input.data),
-    onSuccess: invalidate,
+    }) => repo.addFeature(input.milestoneId, gameId, input.data),
+    // Optimistic: show the new feature immediately.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['features'] });
+      const prev = qc.getQueryData<Feature[]>(featuresKey);
+      const temp: Feature = {
+        id: `temp-${Date.now()}`,
+        milestoneId: input.milestoneId,
+        gameId,
+        name: input.data.name,
+        category: input.data.category,
+        trackType: input.data.trackType,
+        storyPoints: input.data.storyPoints,
+      };
+      qc.setQueryData<Feature[]>(featuresKey, (old = []) => [temp, ...old]);
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(featuresKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useUpdateFeature(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateKeys(['features', 'today']);
+  const featuresKey = qk.features(gameId);
   return useMutation({
     mutationFn: (input: { featureId: string; patch: Partial<Feature> }) =>
       repo.updateFeature(input.featureId, input.patch),
-    onSuccess: invalidate,
+    // Optimistic: apply the edit immediately.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['features'] });
+      const prev = qc.getQueryData<Feature[]>(featuresKey);
+      qc.setQueryData<Feature[]>(featuresKey, (old = []) =>
+        old.map((f) => (f.id === input.featureId ? { ...f, ...input.patch } : f)),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(featuresKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useDeleteFeature(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateKeys(['features', 'today']);
+  const featuresKey = qk.features(gameId);
   return useMutation({
     mutationFn: (featureId: string) => repo.deleteFeature(featureId),
-    onSuccess: invalidate,
+    // Optimistic: remove the feature immediately.
+    onMutate: async (featureId) => {
+      await qc.cancelQueries({ queryKey: ['features'] });
+      const prev = qc.getQueryData<Feature[]>(featuresKey);
+      qc.setQueryData<Feature[]>(featuresKey, (old = []) =>
+        old.filter((f) => f.id !== featureId),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(featuresKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useAddMilestone(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateKeys(['milestones']);
+  const milestonesKey = qk.milestones(gameId);
   return useMutation({
     mutationFn: (input: {
-      featureId: string;
+      quarterId: string;
       data: {
         name: string;
         targetStatement: string;
         criteria: string[];
         metricIds: string[];
       };
-    }) => repo.addMilestone(input.featureId, gameId, input.data),
-    onSuccess: invalidate,
+    }) => repo.addMilestone(input.quarterId, gameId, input.data),
+    // Optimistic: show the new milestone immediately.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['milestones'] });
+      const prev = qc.getQueryData<Milestone[]>(milestonesKey);
+      const temp: Milestone = {
+        id: `temp-${Date.now()}`,
+        quarterId: input.quarterId,
+        gameId,
+        name: input.data.name,
+        targetStatement: input.data.targetStatement,
+        criteria: input.data.criteria,
+        status: 'planned',
+        metricIds: input.data.metricIds,
+      };
+      qc.setQueryData<Milestone[]>(milestonesKey, (old = []) => [temp, ...old]);
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(milestonesKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useUpdateMilestone(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateKeys(['milestones']);
+  const milestonesKey = qk.milestones(gameId);
   return useMutation({
     mutationFn: (input: {
       milestoneId: string;
       patch: Partial<Milestone>;
     }) => repo.updateMilestone(input.milestoneId, input.patch),
-    onSuccess: invalidate,
+    // Optimistic: apply the status/field edit immediately.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['milestones'] });
+      const prev = qc.getQueryData<Milestone[]>(milestonesKey);
+      qc.setQueryData<Milestone[]>(milestonesKey, (old = []) =>
+        old.map((m) =>
+          m.id === input.milestoneId ? { ...m, ...input.patch } : m,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(milestonesKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useDeleteMilestone(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateKeys(['milestones', 'features']);
+  const milestonesKey = qk.milestones(gameId);
+  const featuresKey = qk.features(gameId);
   return useMutation({
     mutationFn: (milestoneId: string) => repo.deleteMilestone(milestoneId),
-    onSuccess: invalidate,
+    // Optimistic: remove the milestone and its features immediately.
+    onMutate: async (milestoneId) => {
+      await qc.cancelQueries({ queryKey: ['milestones'] });
+      await qc.cancelQueries({ queryKey: ['features'] });
+      const prevM = qc.getQueryData<Milestone[]>(milestonesKey);
+      const prevF = qc.getQueryData<Feature[]>(featuresKey);
+      qc.setQueryData<Milestone[]>(milestonesKey, (old = []) =>
+        old.filter((m) => m.id !== milestoneId),
+      );
+      qc.setQueryData<Feature[]>(featuresKey, (old = []) =>
+        old.filter((f) => f.milestoneId !== milestoneId),
+      );
+      return { prevM, prevF };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prevM) qc.setQueryData(milestonesKey, ctx.prevM);
+      if (ctx?.prevF) qc.setQueryData(featuresKey, ctx.prevF);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useCreateSprint(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const invalidate = useInvalidateKeys([
+    'sprints',
+    'currentSprint',
+    'tasks',
+    'today',
+    'games',
+  ]);
   return useMutation({
     mutationFn: () => repo.createSprint(gameId),
     onSuccess: invalidate,
@@ -283,7 +436,7 @@ export function useCreateSprint(gameId: string) {
 }
 
 export function useUpdateSprint(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const invalidate = useInvalidateKeys(['sprints', 'currentSprint', 'games']);
   return useMutation({
     mutationFn: (input: { sprintId: string; patch: Partial<Sprint> }) =>
       repo.updateSprint(input.sprintId, input.patch),
@@ -292,7 +445,13 @@ export function useUpdateSprint(gameId: string) {
 }
 
 export function useCloseSprint(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const invalidate = useInvalidateKeys([
+    'sprints',
+    'currentSprint',
+    'tasks',
+    'today',
+    'games',
+  ]);
   return useMutation({
     mutationFn: (sprintId: string) => repo.closeSprint(gameId, sprintId),
     onSuccess: invalidate,
@@ -300,7 +459,9 @@ export function useCloseSprint(gameId: string) {
 }
 
 export function useAddTask(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateTasks();
+  const tasksKey = qk.tasks(getCurrentUid());
   return useMutation({
     mutationFn: (input: {
       sprintId: string;
@@ -311,40 +472,125 @@ export function useAddTask(gameId: string) {
       isBacklog: boolean;
       note?: string;
     }) => repo.addTask({ ...input, gameId }),
-    onSuccess: invalidate,
+    // Optimistic: insert a temp card immediately, then resync on settle.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['tasks'] });
+      const prev = qc.getQueryData<Task[]>(tasksKey);
+      const temp: Task = {
+        id: `temp-${Date.now()}`,
+        sprintId: input.sprintId,
+        featureId: input.featureId,
+        gameId,
+        title: input.title,
+        status: input.status,
+        day: input.day,
+        isBacklog: input.isBacklog,
+        note: input.note,
+      };
+      qc.setQueryData<Task[]>(tasksKey, (old = []) => [temp, ...old]);
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(tasksKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useUpdateTask(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateTasks();
+  const tasksKey = qk.tasks(getCurrentUid());
   return useMutation({
     mutationFn: (input: { taskId: string; patch: Partial<Task> }) =>
       repo.updateTask(input.taskId, input.patch),
-    onSuccess: invalidate,
+    // Optimistic: apply the patch to the cached task immediately.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['tasks'] });
+      const prev = qc.getQueryData<Task[]>(tasksKey);
+      qc.setQueryData<Task[]>(tasksKey, (old = []) =>
+        old.map((t) => (t.id === input.taskId ? { ...t, ...input.patch } : t)),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(tasksKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useToggleDone(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateTasks();
+  const tasksKey = qk.tasks(getCurrentUid());
   return useMutation({
     mutationFn: (taskId: string) => repo.toggleDone(taskId),
-    onSuccess: invalidate,
+    // Optimistic: flip the status in the cache straight away.
+    onMutate: async (taskId) => {
+      await qc.cancelQueries({ queryKey: ['tasks'] });
+      const prev = qc.getQueryData<Task[]>(tasksKey);
+      qc.setQueryData<Task[]>(tasksKey, (old = []) =>
+        old.map((t) =>
+          t.id === taskId
+            ? { ...t, status: t.status === 'done' ? 'todo' : 'done' }
+            : t,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(tasksKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useMoveTaskDay(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateTasks();
+  const tasksKey = qk.tasks(getCurrentUid());
   return useMutation({
     mutationFn: (input: { taskId: string; day: Task['day'] }) =>
       repo.moveTaskDay(input.taskId, input.day),
-    onSuccess: invalidate,
+    // Optimistic: drop the card onto the target day immediately.
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ['tasks'] });
+      const prev = qc.getQueryData<Task[]>(tasksKey);
+      qc.setQueryData<Task[]>(tasksKey, (old = []) =>
+        old.map((t) =>
+          t.id === input.taskId
+            ? { ...t, day: input.day, isBacklog: input.day === undefined }
+            : t,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(tasksKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }
 
 export function useDeleteTask(gameId: string) {
-  const invalidate = useInvalidateGame(gameId);
+  const qc = useQueryClient();
+  const invalidate = useInvalidateTasks();
+  const tasksKey = qk.tasks(getCurrentUid());
   return useMutation({
     mutationFn: (taskId: string) => repo.deleteTask(taskId),
-    onSuccess: invalidate,
+    // Optimistic: remove the card immediately.
+    onMutate: async (taskId) => {
+      await qc.cancelQueries({ queryKey: ['tasks'] });
+      const prev = qc.getQueryData<Task[]>(tasksKey);
+      qc.setQueryData<Task[]>(tasksKey, (old = []) =>
+        old.filter((t) => t.id !== taskId),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(tasksKey, ctx.prev);
+    },
+    onSettled: invalidate,
   });
 }

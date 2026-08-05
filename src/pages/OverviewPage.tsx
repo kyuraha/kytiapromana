@@ -15,11 +15,11 @@ import {
   CURRENT_YEAR,
 } from '../hooks/queries';
 import MetricCard from '../components/overview/MetricCard';
-import TrackBadge from '../components/common/TrackBadge';
 import Modal from '../components/common/Modal';
 import Spinner from '../components/common/Spinner';
 import EmptyState from '../components/common/EmptyState';
 import { formatShort } from '../lib/format';
+import { STATUS_COLORS } from '../lib/constants';
 
 function AddMetricModal({
   open,
@@ -222,32 +222,37 @@ export default function OverviewPage() {
         <h2 className="mb-3 text-lg font-bold text-ink">
           Quarter Q1 · position
         </h2>
-        {features.length > 0 ? (
+        {milestones.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-3">
-            {features.slice(0, 6).map((f) => {
-              const fm = milestones.filter((m) => m.featureId === f.id);
-              const done = fm.filter((m) => m.status === 'done').length;
-              const pct = fm.length
-                ? Math.round((done / fm.length) * 100)
-                : (placeholders[f.name] ?? 0);
+            {milestones.slice(0, 6).map((m) => {
+              const fs = features.filter((f) => f.milestoneId === m.id);
+              const total = fs.length;
+              const done = m.status === 'done' ? total : 0;
+              const pct = total
+                ? Math.round((done / total) * 100)
+                : (placeholders[m.name] ?? 0);
               return (
                 <div
-                  key={f.id}
+                  key={m.id}
                   className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-semibold text-ink">
-                      {f.name}
+                      {m.name}
                     </span>
-                    <TrackBadge trackType={f.trackType} />
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_COLORS[m.status]}`}
+                    >
+                      {m.status}
+                    </span>
                   </div>
-                  <div className="mt-1 text-xs text-slate-400">
-                    {f.category} · SP {f.storyPoints}
+                  <div className="mt-1 truncate text-xs text-slate-400">
+                    {m.targetStatement || '—'}
                   </div>
                   <div className="mt-3">
                     <div className="mb-1 flex justify-between text-xs text-slate-400">
                       <span>
-                        {done}/{fm.length} milestones done
+                        {done}/{total} features done
                       </span>
                       <span>{pct}%</span>
                     </div>
@@ -265,8 +270,8 @@ export default function OverviewPage() {
         ) : (
           <EmptyState
             icon="📅"
-            title="No features in this quarter yet"
-            hint="Head to the Quarter tab to add features & milestones."
+            title="No milestones in this quarter yet"
+            hint="Head to the Quarter tab to add milestones & the features inside them."
           />
         )}
       </section>

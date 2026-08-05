@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './lib/auth';
 import { isFirebaseConfigured } from './lib/firebase';
+import { DialogProvider, notify } from './lib/dialogs';
 import GameShell from './components/layout/GameShell';
 import GamesPage from './pages/GamesPage';
 import OverviewPage from './pages/OverviewPage';
@@ -15,8 +16,8 @@ const queryClient = new QueryClient({
     onError: (error) => {
       const msg = error instanceof Error ? error.message : String(error);
       console.error('[mutation error]', error);
-      // Surface real failures so the exact cause is visible (not silent).
-      alert(`Action failed: ${msg}`);
+      // Surface real failures as an in-app toast instead of a browser alert.
+      notify(`Action failed: ${msg}`, 'error');
     },
   }),
   defaultOptions: {
@@ -53,9 +54,11 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
+        <DialogProvider>
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </DialogProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

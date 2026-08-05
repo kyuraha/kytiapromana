@@ -51,7 +51,7 @@ export interface Repo {
   // ---- features
   listFeatures(gameId: string): Promise<Feature[]>;
   addFeature(
-    quarterId: string,
+    milestoneId: string,
     gameId: string,
     data: {
       name: string;
@@ -66,7 +66,7 @@ export interface Repo {
   // ---- milestones
   listMilestones(gameId: string): Promise<Milestone[]>;
   addMilestone(
-    featureId: string,
+    quarterId: string,
     gameId: string,
     data: {
       name: string;

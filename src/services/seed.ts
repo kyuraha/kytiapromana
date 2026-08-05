@@ -166,7 +166,7 @@ export function buildSeed(): SeedDatabase {
   const features1: Feature[] = [
     {
       id: 'f-combat',
-      quarterId: quarters1[0].id,
+      milestoneId: 'ml-combat',
       gameId: g1.id,
       name: 'Combat V2',
       category: 'Code',
@@ -175,7 +175,7 @@ export function buildSeed(): SeedDatabase {
     },
     {
       id: 'f-inventory',
-      quarterId: quarters1[0].id,
+      milestoneId: 'ml-inventory',
       gameId: g1.id,
       name: 'Inventory',
       category: 'Code',
@@ -184,7 +184,7 @@ export function buildSeed(): SeedDatabase {
     },
     {
       id: 'f-trailer',
-      quarterId: quarters1[0].id,
+      milestoneId: 'ml-trailer',
       gameId: g1.id,
       name: 'Trailer Launch',
       category: 'Marketing',
@@ -193,7 +193,7 @@ export function buildSeed(): SeedDatabase {
     },
     {
       id: 'f-finance',
-      quarterId: quarters1[0].id,
+      milestoneId: 'ml-finance',
       gameId: g1.id,
       name: 'Finance Ops',
       category: 'Finance',
@@ -205,7 +205,7 @@ export function buildSeed(): SeedDatabase {
   const features2: Feature[] = [
     {
       id: 'f-proto',
-      quarterId: quarters2[0].id,
+      milestoneId: 'ml-proto',
       gameId: g2.id,
       name: 'Prototype',
       category: 'Code',
@@ -217,7 +217,7 @@ export function buildSeed(): SeedDatabase {
   const milestones1: Milestone[] = [
     {
       id: 'ml-combat',
-      featureId: features1[0].id,
+      quarterId: quarters1[0].id,
       gameId: g1.id,
       name: 'Combat loop playable end-to-end',
       targetStatement:
@@ -228,7 +228,7 @@ export function buildSeed(): SeedDatabase {
     },
     {
       id: 'ml-inventory',
-      featureId: features1[1].id,
+      quarterId: quarters1[0].id,
       gameId: g1.id,
       name: 'Inventory v1 in',
       targetStatement: 'Basic inventory grid with pick-up and storage.',
@@ -238,7 +238,7 @@ export function buildSeed(): SeedDatabase {
     },
     {
       id: 'ml-trailer',
-      featureId: features1[2].id,
+      quarterId: quarters1[0].id,
       gameId: g1.id,
       name: 'Teaser out 15 Mar',
       targetStatement: 'Public teaser trailer released on March 15.',
@@ -248,7 +248,7 @@ export function buildSeed(): SeedDatabase {
     },
     {
       id: 'ml-finance',
-      featureId: features1[3].id,
+      quarterId: quarters1[0].id,
       gameId: g1.id,
       name: 'Auto monthly revenue dashboard',
       targetStatement: 'Revenue dashboard pulls weekly data automatically.',
@@ -261,7 +261,7 @@ export function buildSeed(): SeedDatabase {
   const milestones2: Milestone[] = [
     {
       id: 'ml-proto',
-      featureId: features2[0].id,
+      quarterId: quarters2[0].id,
       gameId: g2.id,
       name: 'Playable prototype',
       targetStatement: 'A 5-minute playable slice of the concept.',

@@ -10,6 +10,7 @@ import {
   deleteDoc,
   writeBatch,
   type DocumentData,
+  type DocumentReference,
 } from 'firebase/firestore';
 import { getDb } from '../lib/firebase';
 import { getCurrentUid } from '../lib/auth';
@@ -102,6 +103,26 @@ async function allDocs<T>(col: string, q: ReturnType<typeof query>): Promise<T[]
   );
 }
 
+// Firestore batched writes (`writeBatch` / `commit`) allow **at most 500
+// operations** per commit. A game/project that is actually active accumulates a
+// lot of documents over time (sprints carried forward each week, in-progress
+// tasks, milestones, metrics history, features/quarters…), so deleting the whole
+// game in a single batch can exceed that limit and make `deleteGame()` fail.
+// Chunk the deletes below the limit so deletion always succeeds.
+const BATCH_LIMIT = 450; // stays safely under Firestore's 500-op ceiling
+
+async function deleteInBatches(
+  db: Firestore,
+  refs: DocumentReference[],
+): Promise<void> {
+  for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
+    const slice = refs.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    slice.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
 export class FirestoreRepo implements Repo {
   // ---------------- games ----------------
   async listGames(userId: string): Promise<Game[]> {
@@ -133,26 +154,38 @@ export class FirestoreRepo implements Repo {
   async deleteGame(gameId: string): Promise<void> {
     const db = getDb()!;
     const uidUser = getCurrentUid();
-    const batch = writeBatch(db);
-    const children: { col: string; field: string }[] = [
-      { col: C.visions, field: 'gameId' },
-      { col: C.metrics, field: 'gameId' },
-      { col: C.quarters, field: 'gameId' },
-      { col: C.features, field: 'gameId' },
-      { col: C.milestones, field: 'gameId' },
-      { col: C.sprints, field: 'gameId' },
-      { col: C.tasks, field: 'gameId' },
+    const children: { col: string }[] = [
+      { col: C.visions },
+      { col: C.metrics },
+      { col: C.quarters },
+      { col: C.features },
+      { col: C.milestones },
+      { col: C.sprints },
+      { col: C.tasks },
     ];
-    for (const { col, field } of children) {
-      const snap = await getDocs(
-        query(collection(db, col), where('userId', '==', uidUser)),
-      );
-      snap.docs
-        .filter((d) => d.data()[field] === gameId)
-        .forEach((d) => batch.delete(d.ref));
-    }
-    batch.delete(doc(db, C.games, gameId));
-    await batch.commit();
+    // Fetch each child collection in parallel, filtered straight to THIS game
+    // (the `(gameId, userId)` composite indexes in firestore.indexes.json cover
+    // these equality filters). The old code pulled *every* document the user
+    // owns per collection and filtered client-side, which made deleting a game
+    // slow as the account grew; now it's one targeted query per collection,
+    // run concurrently.
+    const snaps = await Promise.all(
+      children.map(({ col }) =>
+        getDocs(
+          query(
+            collection(db, col),
+            where('userId', '==', uidUser),
+            where('gameId', '==', gameId),
+          ),
+        ),
+      ),
+    );
+    const refs: DocumentReference[] = [];
+    snaps.forEach((snap) => snap.docs.forEach((d) => refs.push(d.ref)));
+    refs.push(doc(db, C.games, gameId));
+    // Delete in chunks so the 500-op writeBatch ceiling is never hit, even when
+    // the game has lots of active/accumulated task & sprint data.
+    await deleteInBatches(db, refs);
   }
 
   // ---------------- vision & metrics ----------------
@@ -268,7 +301,7 @@ export class FirestoreRepo implements Repo {
   }
 
   async addFeature(
-    quarterId: string,
+    milestoneId: string,
     gameId: string,
     data: {
       name: string;
@@ -281,7 +314,7 @@ export class FirestoreRepo implements Repo {
     const id = uid('f');
     const feature: Feature = {
       id,
-      quarterId,
+      milestoneId,
       gameId,
       name: data.name,
       category: data.category,
@@ -298,16 +331,7 @@ export class FirestoreRepo implements Repo {
   }
 
   async deleteFeature(featureId: string): Promise<void> {
-    const db = getDb()!;
-    const batch = writeBatch(db);
-    const ms = await getDocs(
-      query(collection(db, C.milestones), where('userId', '==', getCurrentUid())),
-    );
-    ms.docs
-      .filter((d) => d.data()['featureId'] === featureId)
-      .forEach((d) => batch.delete(d.ref));
-    batch.delete(doc(db, C.features, featureId));
-    await batch.commit();
+    await deleteDoc(doc(getDb()!, C.features, featureId));
   }
 
   // ---------------- milestones ----------------
@@ -319,7 +343,7 @@ export class FirestoreRepo implements Repo {
   }
 
   async addMilestone(
-    featureId: string,
+    quarterId: string,
     gameId: string,
     data: {
       name: string;
@@ -332,7 +356,7 @@ export class FirestoreRepo implements Repo {
     const id = uid('ml');
     const milestone: Milestone = {
       id,
-      featureId,
+      quarterId,
       gameId,
       name: data.name,
       targetStatement: data.targetStatement,
@@ -350,7 +374,16 @@ export class FirestoreRepo implements Repo {
   }
 
   async deleteMilestone(milestoneId: string): Promise<void> {
-    await deleteDoc(doc(getDb()!, C.milestones, milestoneId));
+    const db = getDb()!;
+    // Cascade-delete the features that live inside this milestone.
+    const fs = await getDocs(
+      query(collection(db, C.features), where('userId', '==', getCurrentUid())),
+    );
+    const refs = fs.docs
+      .filter((d) => d.data()['milestoneId'] === milestoneId)
+      .map((d) => d.ref);
+    refs.push(doc(db, C.milestones, milestoneId));
+    await deleteInBatches(db, refs);
   }
 
   // ---------------- sprints ----------------
@@ -414,7 +447,12 @@ export class FirestoreRepo implements Repo {
     const next: Sprint = {
       id: nextId,
       gameId,
-      userId: sprint.userId,
+      // NOTE: `sprint` comes from `snapTo`, which strips `userId`, so we must use
+      // the authenticated uid here (same as createSprint) — otherwise the new
+      // sprint is written without a userId and Firestore's create rule
+      // (`request.resource.data.userId == request.auth.uid`) rejects the whole
+      // writeBatch with "Missing or insufficient permissions".
+      userId: getCurrentUid(),
       number: nextNumber,
       startDate: start,
       endDate: addDays(start, 6),

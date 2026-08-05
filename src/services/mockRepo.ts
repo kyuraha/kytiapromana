@@ -18,7 +18,9 @@ import { buildSeed, type SeedDatabase } from './seed';
 // persists everything to localStorage so the demo survives reloads (this is the
 // "local cache" of §10.7, minus the service worker).
 
-const DB_KEY = 'kytia-db-v1';
+// "v2" bumps the schema when feature/milestone ownership was inverted
+// (Quarter → Milestone → Feature). Old cached dbs are discarded and reseeded.
+const DB_KEY = 'kytia-db-v2';
 const LATENCY = 90;
 
 function delay(ms = LATENCY): Promise<void> {
@@ -265,7 +267,7 @@ export class MockRepo implements Repo {
   }
 
   async addFeature(
-    quarterId: string,
+    milestoneId: string,
     gameId: string,
     data: {
       name: string;
@@ -276,7 +278,7 @@ export class MockRepo implements Repo {
   ): Promise<Feature> {
     const feature: Feature = {
       id: uid('f'),
-      quarterId,
+      milestoneId,
       gameId,
       name: data.name,
       category: data.category,
@@ -302,11 +304,6 @@ export class MockRepo implements Repo {
   async deleteFeature(featureId: string): Promise<void> {
     await this.mutate((db) => {
       db.features = db.features.filter((x) => x.id !== featureId);
-      const f = db.features.find((x) => x.id === featureId);
-      if (f) return;
-      db.milestones = db.milestones.filter(
-        (m) => m.featureId !== featureId,
-      );
     });
   }
 
@@ -317,7 +314,7 @@ export class MockRepo implements Repo {
   }
 
   async addMilestone(
-    featureId: string,
+    quarterId: string,
     gameId: string,
     data: {
       name: string;
@@ -328,7 +325,7 @@ export class MockRepo implements Repo {
   ): Promise<Milestone> {
     const milestone: Milestone = {
       id: uid('ml'),
-      featureId,
+      quarterId,
       gameId,
       name: data.name,
       targetStatement: data.targetStatement,
@@ -354,6 +351,8 @@ export class MockRepo implements Repo {
 
   async deleteMilestone(milestoneId: string): Promise<void> {
     await this.mutate((db) => {
+      // Cascade-delete the features that live inside this milestone.
+      db.features = db.features.filter((f) => f.milestoneId !== milestoneId);
       db.milestones = db.milestones.filter(
         (x) => x.id !== milestoneId,
       );

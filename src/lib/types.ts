@@ -69,7 +69,7 @@ export interface Quarter {
 
 export interface Feature {
   id: string;
-  quarterId: string;
+  milestoneId: string;
   gameId: string;
   name: string;
   category: Category;
@@ -79,7 +79,7 @@ export interface Feature {
 
 export interface Milestone {
   id: string;
-  featureId: string;
+  quarterId: string;
   gameId: string;
   name: string;
   targetStatement: string;

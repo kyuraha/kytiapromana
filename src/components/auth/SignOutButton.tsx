@@ -1,6 +1,7 @@
 import { LogOut } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../lib/auth';
+import { useConfirm } from '../../lib/dialogs';
 
 /**
  * Sign-out button shown in the app headers. Clears the TanStack Query cache on
@@ -9,15 +10,21 @@ import { useAuth } from '../../lib/auth';
 export default function SignOutButton() {
   const { user, signOut } = useAuth();
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   if (!user) return null;
 
-  const handleSignOut = () => {
-    if (!confirm('Sign out of this account?')) return;
-    void signOut().then(() => {
-      // Drop cached queries for the previous account.
-      queryClient.clear();
+  const handleSignOut = async () => {
+    const ok = await confirm({
+      title: 'Sign out',
+      message: 'Sign out of this account?',
+      confirmLabel: 'Sign out',
+      cancelLabel: 'Cancel',
     });
+    if (!ok) return;
+    await signOut();
+    // Drop cached queries for the previous account.
+    queryClient.clear();
   };
 
   return (

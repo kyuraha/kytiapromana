@@ -24,18 +24,16 @@ export function useTodayTasks() {
     queryKey: ['today', today, gameIds],
     enabled: games.length > 0,
     queryFn: async (): Promise<TodayItem[]> => {
-      const all: Task[] = [];
-      for (const g of games) {
-        const tasks = await repo.listTasks(g.id);
-        all.push(...tasks);
-      }
+      // Fetch across all games in parallel (not sequentially) for speed.
+      const [allTaskLists, allFeatureLists] = await Promise.all([
+        Promise.all(games.map((g) => repo.listTasks(g.id))),
+        Promise.all(games.map((g) => repo.listFeatures(g.id))),
+      ]);
+      const all = allTaskLists.flat();
       const dayTasks = all.filter((t) => t.day === today);
 
       // Gather features for lookup.
-      const features: Feature[] = [];
-      for (const g of games) {
-        features.push(...(await repo.listFeatures(g.id)));
-      }
+      const features = allFeatureLists.flat();
       const featureById = new Map(features.map((f) => [f.id, f]));
       const gameById = new Map(games.map((g) => [g.id, g]));
 

@@ -1,17 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCorners,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
 import type { DayName, Feature, Task } from '../../lib/types';
 import { DAYS } from '../../lib/constants';
 import { isToday, displayDate } from '../../lib/format';
 import DraggableTask from './DraggableTask';
+import TaskCard from './TaskCard';
 
 function DayColumn({
   day,
@@ -34,14 +37,8 @@ function DayColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-w-[200px] flex-1 flex-col rounded-xl border p-3 transition ${
-        isOver
-          ? 'border-brand ring-2 ring-brand/25'
-          : today
-            ? 'border-brand bg-brand/[0.04]'
-            : weekend
-              ? 'border-slate-100 bg-slate-50/40'
-              : 'border-slate-200 bg-slate-50/70'
+      className={`flex min-w-[200px] flex-1 flex-col px-2 transition ${
+        isOver ? 'bg-brand/5' : ''
       }`}
     >
       <div
@@ -55,7 +52,7 @@ function DayColumn({
           {displayDate(day, baseDate)}
         </span>
       </div>
-      <div className="flex flex-1 flex-col gap-2">
+      <div className="flex min-h-[320px] flex-col gap-2">
         {tasks.map((t) => (
           <DraggableTask
             key={t.id}
@@ -66,6 +63,11 @@ function DayColumn({
             onDelete={onDelete}
           />
         ))}
+        {tasks.length === 0 && (
+          <div className="py-4 text-center text-xs text-slate-300">
+            Add tasks here
+          </div>
+        )}
       </div>
     </div>
   );
@@ -103,13 +105,22 @@ export default function DayTable({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
 
   const unassigned = tasks.filter((t) => !t.day);
   const { setNodeRef: setUnassignedRef, isOver: unassignedOver } = useDroppable({
     id: 'day-__unassigned__',
   });
 
+  const handleDragStart = (e: DragStartEvent) => {
+    const taskId = String(e.active.id).replace('task-', '');
+    setActiveTask(tasks.find((t) => t.id === taskId) ?? null);
+  };
+
+  const handleDragCancel = () => setActiveTask(null);
+
   const handleDragEnd = (e: DragEndEvent) => {
+    setActiveTask(null);
     const { active, over } = e;
     if (!over) return;
     const taskId = String(active.id).replace('task-', '');
@@ -120,9 +131,18 @@ export default function DayTable({
   };
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragCancel={handleDragCancel}
+      onDragEnd={handleDragEnd}
+    >
       <div className="space-y-3">
-        <div ref={scrollerRef} className="flex gap-2 overflow-x-auto pb-2">
+        <div
+          ref={scrollerRef}
+          className="flex max-h-[60vh] divide-x divide-slate-200 overflow-x-auto overflow-y-auto pb-2"
+        >
           {DAYS.map((d) => (
             <div
               key={d}
@@ -173,6 +193,20 @@ export default function DayTable({
           )}
         </div>
       </div>
+
+      <DragOverlay>
+        {activeTask ? (
+          <div className="cursor-grabbing rotate-2 rounded-lg shadow-2xl ring-2 ring-brand/40">
+            <TaskCard
+              task={activeTask}
+              feature={featureById.get(activeTask.featureId)}
+              compact
+              onToggle={onToggle}
+              onDelete={onDelete}
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }

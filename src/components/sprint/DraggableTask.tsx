@@ -23,7 +23,13 @@ export default function DraggableTask({
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className={isDragging ? 'cursor-grabbing' : 'cursor-grab'}
+    >
       <TaskCard
         task={task}
         feature={feature}

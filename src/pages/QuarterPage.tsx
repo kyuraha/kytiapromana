@@ -14,15 +14,17 @@ import {
   useUpdateFeature,
   CURRENT_YEAR,
 } from '../hooks/queries';
-import FeatureGroup from '../components/quarter/FeatureGroup';
+import MilestoneGroup from '../components/quarter/MilestoneGroup';
 import FilterBar from '../components/common/FilterBar';
 import Modal from '../components/common/Modal';
 import Spinner from '../components/common/Spinner';
 import EmptyState from '../components/common/EmptyState';
+import { useConfirm } from '../lib/dialogs';
 import { CATEGORIES, QUARTERS } from '../lib/constants';
 import type {
   Feature,
   Metric,
+  Milestone,
   QuarterName,
   TrackType,
 } from '../lib/types';
@@ -292,25 +294,31 @@ function AddMilestoneModal({
 
 export default function QuarterPage() {
   const { gameId = '' } = useParams();
+  const confirm = useConfirm();
   const { data: game } = useGame(gameId);
   const { data: quarters = [] } = useQuarters(gameId);
   const { data: features = [] } = useFeatures(gameId);
   const { data: milestones = [] } = useMilestones(gameId);
   const { data: metrics = [] } = useMetrics(gameId);
   const ensureQuarters = useEnsureQuarters(gameId);
+  const addMilestone = useAddMilestone(gameId);
   const addFeature = useAddFeature(gameId);
   const updateFeature = useUpdateFeature(gameId);
   const deleteFeature = useDeleteFeature(gameId);
-  const addMilestone = useAddMilestone(gameId);
 
   const [year, setYear] = useState(CURRENT_YEAR);
-  const [quarter, setQuarter] = useState<QuarterName>('Q1');
-  const [trackFilter, setTrackFilter] = useState<TrackType | 'all'>('all');
+  // Auto-select the quarter matching today's date (e.g. December → Q4).
+  const [quarter, setQuarter] = useState<QuarterName>(() => {
+    const month = new Date().getMonth(); // 0 = Jan, 11 = Dec
+    return QUARTERS[Math.floor(month / 3)];
+  });
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [addMilestoneOpen, setAddMilestoneOpen] = useState(false);
+  const [featureMilestone, setFeatureMilestone] = useState<Milestone | null>(
+    null,
+  );
   const [editFeature, setEditFeature] = useState<Feature | null>(null);
-  const [milestoneFeature, setMilestoneFeature] = useState<Feature | null>(null);
 
   const selectedQuarter = quarters.find(
     (q) => q.year === year && q.quarter === quarter,
@@ -329,31 +337,23 @@ export default function QuarterPage() {
       ids.map((id) => map.get(id)).filter(Boolean) as string[];
   }, [metrics]);
 
-  const quarterFeatures = useMemo(
-    () => features.filter((f) => f.quarterId === selectedQuarter?.id),
-    [features, selectedQuarter],
+  // Milestones belonging to the selected quarter.
+  const quarterMilestones = useMemo(
+    () => milestones.filter((m) => m.quarterId === selectedQuarter?.id),
+    [milestones, selectedQuarter],
   );
 
-  const visibleFeatures = useMemo(() => {
-    return quarterFeatures
-      .filter((f) => {
-        if (trackFilter !== 'all' && f.trackType !== trackFilter)
-          return false;
-        if (statusFilter === 'all') return true;
-        return milestones.some(
-          (m) => m.featureId === f.id && m.status === statusFilter,
-        );
-      })
-      .map((f) => ({
-        feature: f,
-        milestones:
-          statusFilter === 'all'
-            ? milestones.filter((m) => m.featureId === f.id)
-            : milestones.filter(
-                (m) => m.featureId === f.id && m.status === statusFilter,
-              ),
-      }));
-  }, [quarterFeatures, milestones, trackFilter, statusFilter]);
+  // Group each milestone with the features inside it, then filter by status.
+  const visibleMilestones = useMemo(() => {
+    const filtered =
+      statusFilter === 'all'
+        ? quarterMilestones
+        : quarterMilestones.filter((m) => m.status === statusFilter);
+    return filtered.map((m) => ({
+      milestone: m,
+      features: features.filter((f) => f.milestoneId === m.id),
+    }));
+  }, [quarterMilestones, features, statusFilter]);
 
   if (!game) return <Spinner />;
 
@@ -385,8 +385,6 @@ export default function QuarterPage() {
           </div>
         </div>
         <FilterBar
-          track={trackFilter}
-          onTrack={setTrackFilter}
           status={statusFilter}
           onStatus={setStatusFilter}
         />
@@ -394,68 +392,85 @@ export default function QuarterPage() {
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-bold text-ink">
-          Features in {quarter} {year}
+          Milestones in {quarter} {year}
         </h2>
         <button
-          onClick={() => setAddOpen(true)}
+          onClick={() => setAddMilestoneOpen(true)}
           className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
         >
-          <Plus size={15} /> Add feature
+          <Plus size={15} /> Add milestone
         </button>
       </div>
 
-      {visibleFeatures.length > 0 ? (
+      {visibleMilestones.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
-          {visibleFeatures.map(({ feature, milestones: fm }) => (
-            <FeatureGroup
-              key={feature.id}
-              feature={feature}
-              milestones={fm}
+          {visibleMilestones.map(({ milestone, features: fm }) => (
+            <MilestoneGroup
+              key={milestone.id}
+              milestone={milestone}
+              features={fm}
               gameId={gameId}
               metricNames={metricNames}
-              onAddMilestone={(f) => setMilestoneFeature(f)}
+              onAddFeature={(m) => setFeatureMilestone(m)}
               onEditFeature={(f) => setEditFeature(f)}
-              onDeleteFeature={(f) => {
-                if (confirm(`Delete feature "${f.name}" and its milestones?`))
-                  deleteFeature.mutate(f.id);
+              onDeleteFeature={async (f) => {
+                const ok = await confirm({
+                  title: 'Delete feature',
+                  message: `Delete feature "${f.name}"? This cannot be undone.`,
+                  confirmLabel: 'Delete',
+                  cancelLabel: 'Cancel',
+                  danger: true,
+                });
+                if (ok) deleteFeature.mutate(f.id);
               }}
             />
           ))}
         </div>
       ) : (
         <EmptyState
-          icon="🧩"
+          icon="🎯"
           title={
-            quarterFeatures.length
-              ? 'No features match filters'
-              : 'No features yet'
+            quarterMilestones.length
+              ? 'No milestones match filters'
+              : 'No milestones yet'
           }
           hint={
-            quarterFeatures.length
+            quarterMilestones.length
               ? 'Try changing the filters above.'
-              : 'Add your first feature for this quarter and break it into milestones.'
+              : 'Add your first milestone for this quarter, then put features inside it.'
           }
           action={
-            quarterFeatures.length === 0 ? (
+            quarterMilestones.length === 0 ? (
               <button
-                onClick={() => setAddOpen(true)}
+                onClick={() => setAddMilestoneOpen(true)}
                 className="flex items-center gap-1 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
               >
-                <Plus size={14} /> Add feature
+                <Plus size={14} /> Add milestone
               </button>
             ) : undefined
           }
         />
       )}
 
-      <AddFeatureModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
+      <AddMilestoneModal
+        open={addMilestoneOpen}
+        metrics={metrics}
+        onClose={() => setAddMilestoneOpen(false)}
         onSave={(d) => {
           if (selectedQuarter) {
-            addFeature.mutate({ quarterId: selectedQuarter.id, data: d });
+            addMilestone.mutate({ quarterId: selectedQuarter.id, data: d });
           } else {
             ensureQuarters.mutate();
+          }
+        }}
+      />
+
+      <AddFeatureModal
+        open={!!featureMilestone}
+        onClose={() => setFeatureMilestone(null)}
+        onSave={(d) => {
+          if (featureMilestone) {
+            addFeature.mutate({ milestoneId: featureMilestone.id, data: d });
           }
         }}
       />
@@ -468,19 +483,6 @@ export default function QuarterPage() {
         onSave={(d) => {
           if (editFeature)
             updateFeature.mutate({ featureId: editFeature.id, patch: d });
-        }}
-      />
-
-      <AddMilestoneModal
-        open={!!milestoneFeature}
-        metrics={metrics}
-        onClose={() => setMilestoneFeature(null)}
-        onSave={(d) => {
-          if (milestoneFeature)
-            addMilestone.mutate({
-              featureId: milestoneFeature.id,
-              data: d,
-            });
         }}
       />
     </div>

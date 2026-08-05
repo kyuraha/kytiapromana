@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Trash2 } from 'lucide-react';
 import type { Milestone, MilestoneStatus } from '../../lib/types';
 import { MILESTONE_STATUSES, STATUS_COLORS } from '../../lib/constants';
+import { useConfirm } from '../../lib/dialogs';
 import { useDeleteMilestone, useUpdateMilestone } from '../../hooks/queries';
 
 const STATUS_LABEL: Record<MilestoneStatus, string> = {
@@ -22,6 +23,7 @@ export default function MilestoneCard({
 }) {
   const updateMilestone = useUpdateMilestone(gameId);
   const deleteMilestone = useDeleteMilestone(gameId);
+  const confirm = useConfirm();
   const [expanded, setExpanded] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
 
@@ -67,9 +69,15 @@ export default function MilestoneCard({
         </select>
 
         <button
-          onClick={() => {
-            if (confirm(`Delete milestone "${milestone.name}"?`))
-              deleteMilestone.mutate(milestone.id);
+          onClick={async () => {
+            const ok = await confirm({
+              title: 'Delete milestone',
+              message: `Delete milestone "${milestone.name}"? This cannot be undone.`,
+              confirmLabel: 'Delete',
+              cancelLabel: 'Cancel',
+              danger: true,
+            });
+            if (ok) deleteMilestone.mutate(milestone.id);
           }}
           className="shrink-0 rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
           title="Delete milestone"

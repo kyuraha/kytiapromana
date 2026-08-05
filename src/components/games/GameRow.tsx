@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, Trash2 } from 'lucide-react';
 import type { Game } from '../../lib/types';
+import { useConfirm } from '../../lib/dialogs';
 import {
   useCurrentSprint,
   useDeleteGame,
@@ -15,6 +16,7 @@ import { formatNumber, formatShort } from '../../lib/format';
 
 export default function GameRow({ game }: { game: Game }) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const deleteGame = useDeleteGame();
   const { data: vision } = useVision(game.id, CURRENT_YEAR);
   const { data: metrics = [] } = useMetrics(game.id);
@@ -132,11 +134,16 @@ export default function GameRow({ game }: { game: Game }) {
 
         <div className="flex shrink-0 items-center gap-1">
           <button
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              if (confirm(`Delete "${game.name}" and all its data?`)) {
-                deleteGame.mutate(game.id);
-              }
+              const ok = await confirm({
+                title: 'Delete game',
+                message: `Delete "${game.name}" and all its data? This cannot be undone.`,
+                confirmLabel: 'Delete',
+                cancelLabel: 'Cancel',
+                danger: true,
+              });
+              if (ok) deleteGame.mutate(game.id);
             }}
             className="rounded-lg p-2 text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
             title="Delete game"
